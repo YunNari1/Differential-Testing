@@ -13,6 +13,37 @@ import imageio
 from tensorflow.keras.models import load_model
 from configs import bcolors
 from utils import *
+import matplotlib.pyplot as plt
+
+CLASS_NAMES = [
+    "airplane","automobile","bird","cat","deer",
+    "dog","frog","horse","ship","truck"
+]
+
+def save_with_info(img, label1, label2, idx, true_label=None, cov_before=None, cov_after=None):
+    plt.figure(figsize=(4, 5))
+
+    # 이미지 표시
+    plt.imshow(img)
+    plt.axis('off')
+
+    # 텍스트 구성
+    text = f"Index: {idx}\n"
+    
+    if true_label is not None:
+        text += f"True: {true_label}\n"
+
+    text += f"Preds: [{CLASS_NAMES[label1]}, {CLASS_NAMES[label2]}]\n"
+
+    if cov_before is not None and cov_after is not None:
+        text += f"Coverage: {cov_before:.4f} → {cov_after:.4f}"
+
+    # 텍스트 추가
+    plt.title(text, fontsize=10)
+
+    # 저장
+    plt.savefig(f"./results/result_{idx}_{label1}_{label2}.png")
+    plt.close()
 
 # read the parameter
 # argument parsing
@@ -34,7 +65,7 @@ args = parser.parse_args()
 # input image dimensions
 img_rows, img_cols = 32, 32
 # the data, shuffled and split between train and test sets
-(_, _), (x_test, _) = cifar10.load_data()
+(_, _), (x_test, y_test) = cifar10.load_data()
 
 
 input_shape = (img_rows, img_cols, 3)
@@ -54,8 +85,9 @@ model_layer_dict1, model_layer_dict2 = init_coverage_tables(model1, model2)
 
 # ==============================================================================================
 # start gen inputs
-for _ in range(args.seeds):
-    gen_img = np.expand_dims(random.choice(x_test), axis=0)
+for sample_idx  in range(args.seeds):
+    rand_idx = random.randrange(len(x_test))
+    gen_img = np.expand_dims(x_test[rand_idx], axis=0)
     orig_img = gen_img.copy()
     # first check if input already induces differences
     pred1 = model1.predict(gen_img)
@@ -89,8 +121,15 @@ for _ in range(args.seeds):
         gen_img_deprocessed = deprocess_image(gen_img)
 
         # save the result to disk
-        imageio.imwrite('./results/' + 'already_differ_' + str(label1) + '_' + str(
-            label2) + '.png', gen_img_deprocessed)
+        save_with_info(
+    gen_img_deprocessed,
+    label1,
+    label2,
+    sample_idx,
+    true_label=CLASS_NAMES[y_test[rand_idx][0]],
+    cov_before=None,
+    cov_after=averaged_nc
+)
         continue
 
     # if all label agrees
@@ -119,59 +158,4 @@ for _ in range(args.seeds):
     # for adversarial image generation
     final_loss = K.mean(layer_output)
 
-    # we compute the gradient of the input picture wrt this loss
-    grads = normalize(K.gradients(final_loss, input_tensor)[0])
-
-    # this function returns the loss and grads given the input picture
-    iterate = K.function([input_tensor], [loss1, loss2, loss1_neuron, loss2_neuron, grads])
-
-    # we run gradient ascent for 20 steps
-    for iters in range(args.grad_iterations):
-        loss_value1, loss_value2, loss_value3, loss_neuron1, loss_neuron2, loss_neuron3, grads_value = iterate(
-            [gen_img])
-        if args.transformation == 'light':
-            grads_value = constraint_light(grads_value)  # constraint the gradients value
-        elif args.transformation == 'occl':
-            grads_value = constraint_occl(grads_value, args.start_point,
-                                          args.occlusion_size)  # constraint the gradients value
-        elif args.transformation == 'blackout':
-            grads_value = constraint_black(grads_value)  # constraint the gradients value
-
-        gen_img += grads_value * args.step
-        pred1 = model1.predict(gen_img)
-        pred2 = model2.predict(gen_img)
-
-
-        predictions1 = np.argmax(pred1)
-        predictions2 = np.argmax(pred2)
-
-        if not predictions1 == predictions2:
-            update_coverage(gen_img, model1, model_layer_dict1, args.threshold)
-            update_coverage(gen_img, model2, model_layer_dict2, args.threshold)
-
-
-            print(bcolors.OKGREEN + 
-                'covered neurons percentage %d neurons %.3f, %d neurons %.3f'
-                % (len(model_layer_dict1), neuron_covered(model_layer_dict1)[2],
-                    len(model_layer_dict2), neuron_covered(model_layer_dict2)[2])
-                + bcolors.ENDC)
-            averaged_nc = (
-            neuron_covered(model_layer_dict1)[0] +
-            neuron_covered(model_layer_dict2)[0]
-        ) / float(
-            neuron_covered(model_layer_dict1)[1] +
-            neuron_covered(model_layer_dict2)[1]
-        )
-            print(bcolors.OKGREEN + 'averaged covered neurons %.3f' % averaged_nc + bcolors.ENDC)
-
-            gen_img_deprocessed = deprocess_image(gen_img)
-            orig_img_deprocessed = deprocess_image(orig_img)
-
-            # save the result to disk
-            imageio.imwrite('./results/' + args.transformation + '_' + str(predictions1) + '_' + str(
-                predictions2)  + '.png',
-                   gen_img_deprocessed)
-            imageio.imwrite('./results/' + args.transformation + '_' + str(predictions1) + '_' + str(
-                predictions2) + '_orig.png',
-                   orig_img_deprocessed)
-            break
+    

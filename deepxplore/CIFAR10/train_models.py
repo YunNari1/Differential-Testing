@@ -6,8 +6,11 @@ from tensorflow.keras.applications import ResNet50
 from tensorflow.keras import layers, models
 from tensorflow.keras.optimizers import Adam, SGD
 from tensorflow.keras.preprocessing.image import ImageDataGenerator
+from tensorflow.keras.callbacks import ModelCheckpoint, EarlyStopping
 
+# -------------------------
 # 1. 데이터 로드
+# -------------------------
 (x_train, y_train), (x_test, y_test) = cifar10.load_data()
 
 # ResNet50용 resize
@@ -20,13 +23,15 @@ x_test = x_test / 255.0
 y_train = to_categorical(y_train, 10)
 y_test = to_categorical(y_test, 10)
 
+# -------------------------
 # 2. 모델 생성
+# -------------------------
 def build_model(seed=None):
     if seed is not None:
         tf.keras.utils.set_random_seed(seed)
 
     base_model = ResNet50(
-        weights=None,              # CIFAR용 → pretrained 사용 X
+        weights=None,
         include_top=False,
         input_shape=(224, 224, 3)
     )
@@ -43,23 +48,48 @@ def build_model(seed=None):
 model1 = build_model(seed=42)
 model2 = build_model(seed=1234)
 
-
-# 3. 서로 다르게 학습 
-# 모델 1: Adam + 기본 학습
+# -------------------------
+# 3. 서로 다른 학습 설정
+# -------------------------
 model1.compile(
     optimizer=Adam(learning_rate=0.001),
     loss='categorical_crossentropy',
     metrics=['accuracy']
 )
 
-# 모델 2: SGD + momentum + augmentation
 model2.compile(
     optimizer=SGD(learning_rate=0.01, momentum=0.9),
     loss='categorical_crossentropy',
     metrics=['accuracy']
 )
+
 # -------------------------
-# 5. 데이터 증강 (model2만 다르게)
+# 4. 콜백 설정 
+# -------------------------
+checkpoint1 = ModelCheckpoint(
+    "model1_best.h5",
+    monitor='val_accuracy',
+    save_best_only=True,
+    mode='max',
+    verbose=1
+)
+
+checkpoint2 = ModelCheckpoint(
+    "model2_best.h5",
+    monitor='val_accuracy',
+    save_best_only=True,
+    mode='max',
+    verbose=1
+)
+
+early_stop = EarlyStopping(
+    monitor='val_loss',
+    patience=2,
+    restore_best_weights=True
+)
+
+# -------------------------
+# 5. 데이터 증강 (model2만)
 # -------------------------
 datagen = ImageDataGenerator(
     rotation_range=15,
@@ -67,29 +97,45 @@ datagen = ImageDataGenerator(
     height_shift_range=0.1,
     horizontal_flip=True
 )
-# 4. 학습
+
+# -------------------------
+# 6. 학습
+# -------------------------
 print("Training Model 1 (Adam)...")
 model1.fit(
     x_train, y_train,
     epochs=10,
     batch_size=64,
-    validation_data=(x_test, y_test)
+    validation_data=(x_test, y_test),
+    callbacks=[checkpoint1, early_stop]
 )
 
 print("Training Model 2 (SGD + Augmentation)...")
 model2.fit(
     datagen.flow(x_train, y_train, batch_size=64),
     epochs=15,
-    validation_data=(x_test, y_test)
+    validation_data=(x_test, y_test),
+    callbacks=[checkpoint2, early_stop]
 )
 
+# -------------------------
+# 7. Best 모델 로드
+# -------------------------
+model1 = tf.keras.models.load_model("model1_best.h5")
+model2 = tf.keras.models.load_model("model2_best.h5")
+
+# -------------------------
+# 8. 성능 확인
+# -------------------------
 loss1, acc1 = model1.evaluate(x_test, y_test, verbose=0)
 loss2, acc2 = model2.evaluate(x_test, y_test, verbose=0)
 
 print(f"Model1 Accuracy: {acc1:.4f}")
 print(f"Model2 Accuracy: {acc2:.4f}")
 
-# 5. 저장 
+# -------------------------
+# 9. 최종 저장 (DeepXplore용)
+# -------------------------
 model1.save("model1.h5")
 model2.save("model2.h5")
 

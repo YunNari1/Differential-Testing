@@ -14,7 +14,8 @@ from tensorflow.keras.models import load_model
 from configs import bcolors
 from utils import *
 import matplotlib.pyplot as plt
-
+import tensorflow.compat.v1 as tf1
+tf1.disable_eager_execution()
 CLASS_NAMES = [
     "airplane","automobile","bird","cat","deer",
     "dog","frog","horse","ship","truck"
@@ -90,6 +91,8 @@ for sample_idx  in range(args.seeds):
     gen_img = np.expand_dims(x_test[rand_idx], axis=0)
     orig_img = gen_img.copy()
     # first check if input already induces differences
+    gen_img = tf.image.resize(gen_img, (224, 224))
+    gen_img = tf1.keras.backend.get_session().run(gen_img)  
     pred1 = model1.predict(gen_img)
     pred2 = model2.predict(gen_img)
 

@@ -3,3 +3,6 @@
 ./Driving/training
 ./Drebin/dataset
 /Drebin/*.h5
+/Driving/*.h5
+/MNIST/*.h5
+/PDF/*.h5

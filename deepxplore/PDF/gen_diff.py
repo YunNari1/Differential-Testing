@@ -51,7 +51,6 @@ for _ in range(args.seeds):
     gen_pdf = np.expand_dims(X_test[idx], axis=0)
     orig_pdf = gen_pdf.copy()
     # first check if input already induces differences
-    print("shape:", gen_img.shape)
     label1, label2, label3 = np.argmax(model1.predict(gen_pdf)[0]), np.argmax(model2.predict(gen_pdf)[0]), np.argmax(
         model3.predict(gen_pdf)[0])
     if not label1 == label2 == label3:

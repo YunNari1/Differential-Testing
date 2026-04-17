@@ -8,23 +8,36 @@ from tensorflow.keras.optimizers import Adam, SGD
 from tensorflow.keras.preprocessing.image import ImageDataGenerator
 from tensorflow.keras.callbacks import ModelCheckpoint, EarlyStopping
 
+# GPU 메모리 설정
+gpus = tf.config.list_physical_devices('GPU')
+if gpus:
+    for gpu in gpus:
+        tf.config.experimental.set_memory_growth(gpu, True)
+
 # -------------------------
 # 1. 데이터 로드
 # -------------------------
 (x_train, y_train), (x_test, y_test) = cifar10.load_data()
 
-# ResNet50용 resize
-x_train = tf.image.resize(x_train, (224, 224)).numpy()
-x_test = tf.image.resize(x_test, (224, 224)).numpy()
-
-x_train = x_train / 255.0
-x_test = x_test / 255.0
-
 y_train = to_categorical(y_train, 10)
 y_test = to_categorical(y_test, 10)
 
 # -------------------------
-# 2. 모델 생성
+# 2. tf.data로 변경 
+# -------------------------
+def preprocess(x, y):
+    x = tf.image.resize(x, (224, 224)) 
+    x = tf.cast(x, tf.float32) / 255.0
+    return x, y
+
+train_ds = tf.data.Dataset.from_tensor_slices((x_train, y_train))
+train_ds = train_ds.map(preprocess).shuffle(10000).batch(8).prefetch(tf.data.AUTOTUNE)
+
+test_ds = tf.data.Dataset.from_tensor_slices((x_test, y_test))
+test_ds = test_ds.map(preprocess).batch(8).prefetch(tf.data.AUTOTUNE)
+
+# -------------------------
+# 3. 모델 생성
 # -------------------------
 def build_model(seed=None):
     if seed is not None:
@@ -33,7 +46,7 @@ def build_model(seed=None):
     base_model = ResNet50(
         weights=None,
         include_top=False,
-        input_shape=(224, 224, 3)
+        input_shape=(224, 224, 3)  
     )
 
     x = base_model.output
@@ -41,100 +54,55 @@ def build_model(seed=None):
     x = layers.Dense(256, activation='relu')(x)
     output = layers.Dense(10, activation='softmax')(x)
 
-    model = models.Model(inputs=base_model.input, outputs=output)
-    return model
-
+    return models.Model(inputs=base_model.input, outputs=output)
 
 model1 = build_model(seed=42)
 model2 = build_model(seed=1234)
 
 # -------------------------
-# 3. 서로 다른 학습 설정
+# 4. 컴파일
 # -------------------------
-model1.compile(
-    optimizer=Adam(learning_rate=0.001),
-    loss='categorical_crossentropy',
-    metrics=['accuracy']
-)
-
-model2.compile(
-    optimizer=SGD(learning_rate=0.01, momentum=0.9),
-    loss='categorical_crossentropy',
-    metrics=['accuracy']
-)
+model1.compile(optimizer=Adam(0.001), loss='categorical_crossentropy', metrics=['accuracy'])
+model2.compile(optimizer=SGD(0.001, momentum=0.9), loss='categorical_crossentropy', metrics=['accuracy'])
 
 # -------------------------
-# 4. 콜백 설정 
+# 5. 콜백
 # -------------------------
-checkpoint1 = ModelCheckpoint(
-    "model1_best.h5",
-    monitor='val_accuracy',
-    save_best_only=True,
-    mode='max',
-    verbose=1
-)
+checkpoint1 = ModelCheckpoint("model1_best.h5", monitor='val_accuracy', save_best_only=True)
+checkpoint2 = ModelCheckpoint("model2_best.h5", monitor='val_accuracy', save_best_only=True)
 
-checkpoint2 = ModelCheckpoint(
-    "model2_best.h5",
-    monitor='val_accuracy',
-    save_best_only=True,
-    mode='max',
-    verbose=1
-)
-
-early_stop = EarlyStopping(
-    monitor='val_loss',
-    patience=2,
-    restore_best_weights=True
-)
-
-# -------------------------
-# 5. 데이터 증강 (model2만)
-# -------------------------
-datagen = ImageDataGenerator(
-    rotation_range=15,
-    width_shift_range=0.1,
-    height_shift_range=0.1,
-    horizontal_flip=True
-)
+early_stop = EarlyStopping(monitor='val_loss', patience=2, restore_best_weights=True)
 
 # -------------------------
 # 6. 학습
 # -------------------------
 print("Training Model 1 (Adam)...")
 model1.fit(
-    x_train, y_train,
+    train_ds,
     epochs=10,
-    batch_size=64,
-    validation_data=(x_test, y_test),
+    validation_data=test_ds,
     callbacks=[checkpoint1, early_stop]
 )
 
-print("Training Model 2 (SGD + Augmentation)...")
+print("Training Model 2 (SGD)...")
 model2.fit(
-    datagen.flow(x_train, y_train, batch_size=64),
-    epochs=15,
-    validation_data=(x_test, y_test),
+    train_ds,
+    epochs=10,
+    validation_data=test_ds,
     callbacks=[checkpoint2, early_stop]
 )
 
 # -------------------------
-# 7. Best 모델 로드
+# 7. 평가
 # -------------------------
-model1 = tf.keras.models.load_model("model1_best.h5")
-model2 = tf.keras.models.load_model("model2_best.h5")
-
-# -------------------------
-# 8. 성능 확인
-# -------------------------
-loss1, acc1 = model1.evaluate(x_test, y_test, verbose=0)
-loss2, acc2 = model2.evaluate(x_test, y_test, verbose=0)
+loss1, acc1 = model1.evaluate(test_ds)
+loss2, acc2 = model2.evaluate(test_ds)
 
 print(f"Model1 Accuracy: {acc1:.4f}")
 print(f"Model2 Accuracy: {acc2:.4f}")
 
-# -------------------------
-# 9. 최종 저장 (DeepXplore용)
+# ------------------------- 
+# 8. 최종 저장 (DeepXplore용) 
 # -------------------------
 model1.save("model1.h5")
 model2.save("model2.h5")

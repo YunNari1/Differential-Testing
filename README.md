@@ -29,7 +29,7 @@ python.exe -m pip install --upgrade pip
 
 This project was tested with the following GPU environment:
 
-CUDA: 11.2
+CUDA: 11.8
 cuDNN: 8.1
 
 ## Modifications for CIFAR-10

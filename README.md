@@ -24,6 +24,7 @@ Due to compatibility issues (TensorFlow 1.x), we reimplemented the framework in 
 
 ```bash
 pip install -r requirements.txt
+python.exe -m pip install --upgrade pip
 ```
 
 This project was tested with the following GPU environment:
